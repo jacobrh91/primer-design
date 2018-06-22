@@ -57,15 +57,67 @@ parser.add_argument('-v', '--verbose', action='store_true',
 args = parser.parse_args()
 
 
+class Primer:
+    def __init__(self, sequence):
+        self.sequence = sequence
+        self.GC_percentage = self.calculate_GC()
+        self.Tm = self.calculate_Tm()
+
+    def calculate_GC(self):
+        upper_seq = self.sequence.upper()
+        gc_count = upper_seq.count('G') + upper_seq.count('C')
+        gc_fraction = float(gc_count) / len(self.sequence)
+        return 100 * gc_fraction
+
+    def calculate_Tm(self):
+        N = len(self.sequence)
+        melt_temp = 81.5 + 0.41 * self.GC_percentage - (675 / N)
+        return melt_temp
+
+    def get_primer_elements(self):
+        return (self.sequence, self.GC_percentage, self.Tm)
+
+
+def create_reverse_complement(input_sequence):
+    alt_map = {'ins': '0'}
+    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+
+    for k, v in alt_map.items():
+        compseq = input_sequence.replace(k, v)    # This was in the original function but was unused??? What is alt_map?
+    bases = list(input_sequence)
+    bases = reversed([complement.get(base, base) for base in bases])
+    bases = ''.join(bases)
+    for k, v in alt_map.items():
+        bases = bases.replace(v, k)
+    return bases
+
+
+def get_primers(input_sequence):
+    """
+     Given an input sequence, return a list of all possible Primer objects
+    """
+    # This was len(input_sequence[:args.e]), which is equivalent to args.e
+    length = args.e
+    primer_sequence_list = [input_sequence[i:j + 1] for i in range(length) for j in range(i + args.s, i + args.l)]
+    # Turn primer sequences into Primer objects
+    primer_list = [Primer(primer) for primer in primer_sequence_list]
+    return primer_list
+
+
+def filter_primers(list_of_primers):
+    filtered_list = list_of_primers.copy()
+    for primer in list_of_primers:
+        if primer.GC_percentage < args.M or primer.GC_percentage > args.X or primer.Tm < args.m or primer.Tm > args.x:
+            filtered_list.remove(primer)
+    return filtered_list
+
+
 def main():
 
     if args.verbose:
         print(args)
 
     # IMPORTING FASTA FILE
-
-    if args.verbose:
-        print('Item exists: ' + str(path.exists(args.i)))
 
     if path.exists(args.i):
         with open(args.i, 'r') as f:
@@ -78,105 +130,39 @@ def main():
     else:
         sys.exit('file does not exist')
 
-    # DEFINING REVERSE COMPLIMENT
-    alt_map = {'ins': '0'}
-    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+    # Lists of Primer objects
+    forward_primers = get_primers(seq)
+    reverse_primers = get_primers(create_reverse_complement(seq))
 
-    def revcomp(input):
-        for k, v in alt_map.items():
-            compseq = seq.replace(k, v)
-        bases = list(compseq)
-        bases = reversed([complement.get(base, base) for base in bases])
-        bases = ''.join(bases)
-        for k, v in alt_map.items():
-            bases = bases.replace(v, k)
-        return bases
+    filtered_forward_primers = filter_primers(forward_primers)
+    filtered_reverse_primers = filter_primers(reverse_primers)
 
-    # DEFINING PRIMER LISTS
-
-    def get_primers(input_string):
-        length = len(input_string[:args.e])
-        prim_list_1 = [input_string[i:j + 1] for i in range(length) for j in range(i+args.s, i+args.l)]
-        if args.verbose:
-            print('prim_list_1 is a {}'.format(type(prim_list_1)))
-        return prim_list_1
-
-    if args.verbose:
-        print(get_primers(seq))
-
-    def fwd(input):
-        return get_primers(input)
-
-    def rvs(input):
-        seq_rc = revcomp(input)
-        return get_primers(seq_rc)
-
-    print("seq: " + seq)
-
-    fwd_primers = fwd(seq)
-    rvs_primers = rvs(seq)
-
-    if args.verbose:
-        print(f'List of forward primers: {fwd_primers}')
-        print(f'List of reverse primers: {rvs_primers}')
-
-    # DEFINING Primer GC CONTENT
-    def calculate_GC(input):
-        gc_count = input.count('g') + input.count('c') + input.count('G') + input.count('C')
-        gc_fraction = float(gc_count)/len(input)
-        return 100 * gc_fraction
-
-    # DEFINING PRIMER MELTING TEMPERATURES
-    def calculate_Tm(input):
-        N = len(input)
-        melt = 81.5 + 0.41*(calculate_GC(input)) - (675/N)
-        return melt
-
-    # DELETING FORWARD PRIMERS THAT DO NOT FALL WITHIN %GC AND TM LIMITS
-    for sequence in fwd_primers:
-        if calculate_GC(sequence) < args.M or calculate_GC(sequence) > args.X or \
-           calculate_Tm(sequence) < args.m or calculate_Tm(sequence) > args.x:
-            fwd_primers.remove(sequence)
-
-    # DELETING REVERSE PRIMERS THAT DO NOT FALL WITHIN %GC AND TM LIMITS
-    for sequence in rvs_primers:
-        if calculate_GC(sequence) < args.M or calculate_GC(sequence) > args.X or \
-           calculate_Tm(sequence) < args.m or calculate_Tm(sequence) > args.x:
-            rvs_primers.remove(sequence)
-
-    # FORMING PRIMER PAIRS
-    if args.verbose:
-        print(f"Pairing primers based on TM (primers in a pair will have a maximum TM difference of {args.D} degrees)")
-
-    # Get all of the combinations between the forward and reverse primers
-    primer_pairs = list(itertools.product(fwd_primers, rvs_primers))
-
-    if args.verbose:
-        print(f"Total number of primer pairs: {len(primer_pairs)}")
+    primer_pairs = list(itertools.product(filtered_forward_primers, filtered_reverse_primers))
 
     # Filter out all pairs that have Tm's that are too far apart
-    pairs = [i for i in primer_pairs if math.isclose(calculate_Tm(i[0]), calculate_Tm(i[1]), abs_tol=args.D)]
+    filtered_primer_pairs = [pair for pair in primer_pairs if math.isclose(pair[0].Tm, pair[1].Tm, abs_tol=args.D)]
 
-    if args.verbose:
-        print(f"Number of primer pairs with matching TM: {len(pairs)}")
+    temps = [(pair[0].Tm, pair[1].Tm) for pair in filtered_primer_pairs]
 
-    # todo We are recomputing Tm over and over for the same primers; let's define a class called Primer's and reuse
-    # todo   it so these things are calculated only once
-    temps = [(calculate_Tm(i[0]), calculate_Tm(i[1])) for i in pairs]
+    # Creates elements directly stored in output dict
+    #   For each pair, store the following:
+    #     ( (primer_1_seq, primer_1_GC, primer_1_Tm) , (primer_2_seq, primer_2_GC, primer_2_Tm) )
+    flattened_primer_pair_info = [(i[0].get_primer_elements, i[1].get_primer_elements) for i in filtered_primer_pairs]
 
-    if args.verbose:
-        print(f"TMs for each primer pair: {temps}")
+    output_dict = {
+        "Target gene": name_tag,
+        "Genetic sequence": seq,
+        "Primer Pair Info": flattened_primer_pair_info
+    }
 
-    matching_temp = list(zip(pairs, temps))
+    print(output_dict)
 
-    if args.verbose:
+    #matching_temp = list(zip(pairs, temps))
 
-        print(f"matched pairs: {matching_temp}")
-
-    primer_table = tabulate(matching_temp, headers=['Primer pair', 'TM of primer pair'])
+    #primer_table = tabulate(matching_temp, headers=['Primer pair', 'TM of primer pair'])
 
     # WRITE TO OUTPUT FILE
-
+'''
     with open(args.o, 'w') as f2:
         f2.write(
             f"""
@@ -194,6 +180,6 @@ def main():
 
     print(f'The output file has been generated at {args.o}')
 
-
+'''
 if __name__ == '__main__':
     main()
