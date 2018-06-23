@@ -10,6 +10,7 @@ import argparse
 import math
 import sys
 import statistics
+import json
 from os import path
 from tabulate import tabulate ### only required for the table in output, can be replaced by something else
 
@@ -35,13 +36,13 @@ parser.add_argument('-l', '--long', metavar='', dest='l', type=int, default=30,
 parser.add_argument('-m', '--mintemp', metavar='', dest='m', type=float, default=55,
                     help='min Tm in celsius, default = 55'
                     )
-parser.add_argument('-x', '--maxtemp', metavar='', dest='x', type=float, default=62,
+parser.add_argument('-x', '--maxtemp', metavar='', dest='x', type=float, default=75, # Changed from 62, example didn't work with such a low threshold
                     help='max Tm in celsius, default = 62'
                     )
-parser.add_argument('-M', '--mingc', metavar='', dest='M', type=float, default=40,
+parser.add_argument('-M', '--mingc', metavar='', dest='M', type=float, default=35, # Changed from 40, example didn't work with such a high threshold
                     help='min GC percentage, default = 40'
                     )
-parser.add_argument('-X', '--maxgc', metavar='', dest='X', type=float, default=60,
+parser.add_argument('-X', '--maxgc', metavar='', dest='X', type=float, default=65, # Changed from 60, example didn't work with such a high threshold
                     help='max GC percentage, default = 60'
                     )
 parser.add_argument('-D', '--tmdiff', metavar='', dest='D', type=float, default=0.5,
@@ -60,22 +61,25 @@ args = parser.parse_args()
 class Primer:
     def __init__(self, sequence):
         self.sequence = sequence
-        self.GC_percentage = self.calculate_GC()
-        self.Tm = self.calculate_Tm()
+        self.GC_percentage = self.__calculate_GC()
+        self.Tm = self.__calculate_Tm()
 
-    def calculate_GC(self):
+    def __calculate_GC(self):
         upper_seq = self.sequence.upper()
         gc_count = upper_seq.count('G') + upper_seq.count('C')
         gc_fraction = float(gc_count) / len(self.sequence)
         return 100 * gc_fraction
 
-    def calculate_Tm(self):
+    def __calculate_Tm(self):
         N = len(self.sequence)
         melt_temp = 81.5 + 0.41 * self.GC_percentage - (675 / N)
         return melt_temp
 
     def get_primer_elements(self):
-        return (self.sequence, self.GC_percentage, self.Tm)
+        return {"sequence": self.sequence,
+                "GC": self.GC_percentage,
+                "Tm": self.Tm
+                }
 
 
 def create_reverse_complement(input_sequence):
@@ -118,7 +122,6 @@ def main():
         print(args)
 
     # IMPORTING FASTA FILE
-
     if path.exists(args.i):
         with open(args.i, 'r') as f:
             contents = f.read()
@@ -142,44 +145,30 @@ def main():
     # Filter out all pairs that have Tm's that are too far apart
     filtered_primer_pairs = [pair for pair in primer_pairs if math.isclose(pair[0].Tm, pair[1].Tm, abs_tol=args.D)]
 
-    temps = [(pair[0].Tm, pair[1].Tm) for pair in filtered_primer_pairs]
-
     # Creates elements directly stored in output dict
-    #   For each pair, store the following:
-    #     ( (primer_1_seq, primer_1_GC, primer_1_Tm) , (primer_2_seq, primer_2_GC, primer_2_Tm) )
-    flattened_primer_pair_info = [(i[0].get_primer_elements, i[1].get_primer_elements) for i in filtered_primer_pairs]
+    flat_primer_pair_info = []
+    for i in filtered_primer_pairs:
+        flat_primer_pair_info.append(
+            {
+                "Forward primer": i[0].get_primer_elements(),
+                "Reverse primer": i[1].get_primer_elements()
+            }
+        )
 
     output_dict = {
         "Target gene": name_tag,
         "Genetic sequence": seq,
-        "Primer Pair Info": flattened_primer_pair_info
+        "Total primer pairs": len(flat_primer_pair_info),
+        "Generated with": "$software name",
+        "Date": str(datetime.datetime.now()),
+        "Primer Pair Info": flat_primer_pair_info
     }
 
-    print(output_dict)
-
-    #matching_temp = list(zip(pairs, temps))
-
-    #primer_table = tabulate(matching_temp, headers=['Primer pair', 'TM of primer pair'])
-
-    # WRITE TO OUTPUT FILE
-'''
-    with open(args.o, 'w') as f2:
-        f2.write(
-            f"""
-            Target gene: {name_tag}
-            Genetic sequence:
-            {seq}
-            List of primers with TMs:
-            {primer_table}
-            Generated with $software_name in {datetime.datetime.now()}
-            Please cite $citation_quote
-            """
-        )
-
-# CONFIRMATION MESSAGE
+    with open(args.o, 'w') as f:
+        json.dump(output_dict, f, indent=2)
 
     print(f'The output file has been generated at {args.o}')
 
-'''
+
 if __name__ == '__main__':
     main()
