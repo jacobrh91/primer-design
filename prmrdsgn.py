@@ -83,16 +83,10 @@ class Primer:
 
 
 def create_reverse_complement(input_sequence):
-    alt_map = {'ins': '0'}
     complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
-
-    for k, v in alt_map.items():
-        compseq = input_sequence.replace(k, v)    # This was in the original function but was unused??? What is alt_map?
     bases = list(input_sequence)
     bases = reversed([complement.get(base, base) for base in bases])
     bases = ''.join(bases)
-    for k, v in alt_map.items():
-        bases = bases.replace(v, k)
     return bases
 
 
