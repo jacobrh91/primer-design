@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-#  Written by: Hans Müller Paul
+#  Written by: Hans Müller Paul and Jacob Heldenbrand
 
 # IMPORT LIBRARIES
 
@@ -8,7 +8,9 @@ import datetime
 import itertools
 import argparse
 import math
+import sys
 import statistics
+import json
 from os import path
 from tabulate import tabulate ### only required for the table in output, can be replaced by something else
 
@@ -34,13 +36,13 @@ parser.add_argument('-l', '--long', metavar='', dest='l', type=int, default=30,
 parser.add_argument('-m', '--mintemp', metavar='', dest='m', type=float, default=55,
                     help='min Tm in celsius, default = 55'
                     )
-parser.add_argument('-x', '--maxtemp', metavar='', dest='x', type=float, default=62,
+parser.add_argument('-x', '--maxtemp', metavar='', dest='x', type=float, default=75, # Changed from 62, example didn't work with such a low threshold
                     help='max Tm in celsius, default = 62'
                     )
-parser.add_argument('-M', '--mingc', metavar='', dest='M', type=float, default=40,
+parser.add_argument('-M', '--mingc', metavar='', dest='M', type=float, default=35, # Changed from 40, example didn't work with such a high threshold
                     help='min GC percentage, default = 40'
                     )
-parser.add_argument('-X', '--maxgc', metavar='', dest='X', type=float, default=60,
+parser.add_argument('-X', '--maxgc', metavar='', dest='X', type=float, default=65, # Changed from 60, example didn't work with such a high threshold
                     help='max GC percentage, default = 60'
                     )
 parser.add_argument('-D', '--tmdiff', metavar='', dest='D', type=float, default=0.5,
@@ -55,177 +57,115 @@ parser.add_argument('-v', '--verbose', action='store_true',
 
 args = parser.parse_args()
 
+
+class Primer:
+    def __init__(self, sequence):
+        self.sequence = sequence
+        self.GC_percentage = self.__calculate_GC()
+        self.Tm = self.__calculate_Tm()
+
+    def __calculate_GC(self):
+        upper_seq = self.sequence.upper()
+        gc_count = upper_seq.count('G') + upper_seq.count('C')
+        gc_fraction = float(gc_count) / len(self.sequence)
+        return 100 * gc_fraction
+
+    def __calculate_Tm(self):
+        N = len(self.sequence)
+        melt_temp = 81.5 + 0.41 * self.GC_percentage - (675 / N)
+        return melt_temp
+
+    def get_primer_elements(self):
+        return {"sequence": self.sequence,
+                "GC": self.GC_percentage,
+                "Tm": self.Tm
+                }
+
+
+def create_reverse_complement(input_sequence):
+    alt_map = {'ins': '0'}
+    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+
+    for k, v in alt_map.items():
+        compseq = input_sequence.replace(k, v)    # This was in the original function but was unused??? What is alt_map?
+    bases = list(input_sequence)
+    bases = reversed([complement.get(base, base) for base in bases])
+    bases = ''.join(bases)
+    for k, v in alt_map.items():
+        bases = bases.replace(v, k)
+    return bases
+
+
+def get_primers(input_sequence):
+    """
+     Given an input sequence, return a list of all possible Primer objects
+    """
+    # This was len(input_sequence[:args.e]), which is equivalent to args.e
+    length = args.e
+    primer_sequence_list = [input_sequence[i:j + 1] for i in range(length) for j in range(i + args.s, i + args.l)]
+    # Turn primer sequences into Primer objects
+    primer_list = [Primer(primer) for primer in primer_sequence_list]
+    return primer_list
+
+
+def filter_primers(list_of_primers):
+    filtered_list = list_of_primers.copy()
+    for primer in list_of_primers:
+        if primer.GC_percentage < args.M or primer.GC_percentage > args.X or primer.Tm < args.m or primer.Tm > args.x:
+            filtered_list.remove(primer)
+    return filtered_list
+
+
 def main():
 
     if args.verbose:
         print(args)
 
     # IMPORTING FASTA FILE
-
-    if args.verbose:
-        print('Item exists: ' + str(path.exists(args.i)))
-
     if path.exists(args.i):
         with open(args.i, 'r') as f:
             contents = f.read()
             seqlist = contents.split()
-        if args.verbose:
-            print('seqlist is {}'.format(type(seqlist)))        # Not sure this is valuable output, even in verbose mode
         name_tag = seqlist[0]
         seq = ''.join(seqlist[1:])
         if args.verbose:
             print(f'file name is {name_tag} and sequence is {seq}')
     else:
-        print('file does not exist')
+        sys.exit('file does not exist')
 
-    # DEFINING REVERSE COMPLIMENT
-    alt_map = {'ins':'0'}
-    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+    # Lists of Primer objects
+    forward_primers = get_primers(seq)
+    reverse_primers = get_primers(create_reverse_complement(seq))
 
-    def revcomp(input):
-        for k,v in alt_map.items():
-            compseq = seq.replace(k,v)
-        bases = list(compseq)
-        bases = reversed([complement.get(base, base) for base in bases])
-        bases = ''.join(bases)
-        for k, v in alt_map.items():
-            bases = bases.replace(v, k)
-        return bases
+    filtered_forward_primers = filter_primers(forward_primers)
+    filtered_reverse_primers = filter_primers(reverse_primers)
 
-    # DEFINING PRIMER LISTS
+    primer_pairs = list(itertools.product(filtered_forward_primers, filtered_reverse_primers))
 
-    def get_primer(input_string):
-        length = len(input_string[:args.e])
-        prim_list_1 = [input_string[i:j + 1] for i in range(length) for j in range(i+args.s,i+args.l)]
-        if args.verbose:
-            print('prim_list_1 is a {}'.format(type(prim_list_1)))
-        return prim_list_1
+    # Filter out all pairs that have Tm's that are too far apart
+    filtered_primer_pairs = [pair for pair in primer_pairs if math.isclose(pair[0].Tm, pair[1].Tm, abs_tol=args.D)]
 
-    if args.verbose:
-        print(get_primer(seq))
-
-    def fwd(input):
-        return get_primer(input)
-
-    def rvs(input):
-        seq_rc = revcomp(input)
-        return get_primer(seq_rc)
-
-    fwd_primers = fwd(seq)
-    rvs_primers = rvs(seq)
-
-    if args.verbose:
-        print(f'List of forward primers: {fwd_primers}')
-        print(f'List of reverse primers: {rvs_primers}')
-
-    # DEFINING Primer GC CONTENT
-    def GC(input):
-        gc_count = input.count('g') + input.count('c') + input.count('G') + input.count('C')
-        gc_fraction = float(gc_count)/len(input)
-        return 100 * gc_fraction
-
-    # DEFINING PRIMER MELTING TEMPERATURES
-    def TM(input):
-        N = len(input)
-        melt = 81.5 + 0.41*(GC(input)) - (675/N)
-        return melt
-
-### NOTE FOR JACOB:
-### The following two blocks were done in a very simplistic manner by removing sequences from a list
-### if they did not meet a certain condition. I have done it in 4 separate steps: two for GC and two for
-### TM, the first being less than minimum and the second being more than maximum. When I tried to implement
-### a single step for verification (within the range) it returned an empty list. I may be attempting to do
-### it in the wrong way.
-
-
-    # DELETING FORWARD PRIMERS THAT DO NOT FALL WITHIN %GC AND TM LIMITS
-    if args.verbose:
-        print(f'Number of forward primers prior to GC verification: {len(fwd_primers)}')
-    for sequence in fwd_primers:
-        if GC(sequence) < args.M:
-            fwd_primers.remove(sequence)
-        elif GC(sequence) > args.X:
-            fwd_primers.remove(sequence)
-
-    if args.verbose:
-        print(f'Number of forward primers after to GC verification: {len(fwd_primers)}')
-        print(f'Number of forward primers prior to TM verification: {len(fwd_primers)}')
-    for sequence in fwd_primers:
-        if TM(sequence) < args.m:
-            fwd_primers.remove(sequence)
-        elif TM(sequence) > args.x:
-            fwd_primers.remove(sequence)
-    if args.verbose:
-        print(f'Number of forward primers after to TM verification: {len(fwd_primers)}')
-
-    # DELETING REVERSE PRIMERS THAT DO NOT FALL WITHIN %GC AND TM LIMITS
-
-    if args.verbose:
-        print(f'Number of reverse primers prior to GC verification: {len(rvs_primers)}')
-
-    for sequence in rvs_primers:
-        if GC(sequence) < args.M:
-            rvs_primers.remove(sequence)
-        elif GC(sequence) > args.X:
-            rvs_primers.remove(sequence)
-    if args.verbose:
-        print(f'Number of reverse primers after to GC verification: {len(rvs_primers)}')
-        print(f'Number of reverse primers prior to TM verification: {len(rvs_primers)}')
-
-    for sequence in rvs_primers:
-        if TM(sequence) < args.m    :
-            rvs_primers.remove(sequence)
-        elif TM(sequence) > args    .x:
-            rvs_primers.remove(sequence)
-    if args.verbose:
-        print(f'Number of reverse primers after to TM verification: {len(rvs_primers)}')
-
-    # FORMING PRIMER PAIRS
-
-    if args.verbose:
-        print(f"Pairing primers based on TM (primers in a pair will have a maximum TM difference of {args.D} degrees)")
-
-    PrimerPairs = list(itertools.product(fwd_primers,rvs_primers))
-
-    if args.verbose:
-        print(f"Total number of primer pairs: {len(PrimerPairs)}")
-
-    Pairs = [i for i in PrimerPairs if math.isclose(TM(i[0]),TM(i[1]),abs_tol=args.D)]
-
-    if args.verbose:
-
-        print(f"Number of primer pairs with matching TM: {len(Pairs)}")
-
-    Temps = [(TM(i[0]),TM(i[1])) for i in Pairs]
-
-    if args.verbose:
-
-        print(f"TMs for each primer pair: {Temps}")
-
-    MatchingTemp = list(zip(Pairs, Temps))
-
-    if args.verbose:
-
-        print(f"matched pairs: {MatchingTemp}")
-
-    primertable = tabulate(MatchingTemp, headers=['Primer pair','TM of primer pair'])
-
-    # WRITE TO OUTPUT FILE
-
-    with open(args.o, 'w') as f2:
-        f2.write(
-            f"""
-            Target gene: {name_tag}
-            Genetic sequence:
-            {seq}
-            List of primers with TMs:
-            {primertable}
-            Generated with $software_name in {datetime.datetime.now()}
-            Please cite $citation_quote
-            """
+    # Creates elements directly stored in output dict
+    flat_primer_pair_info = []
+    for i in filtered_primer_pairs:
+        flat_primer_pair_info.append(
+            {
+                "Forward primer": i[0].get_primer_elements(),
+                "Reverse primer": i[1].get_primer_elements()
+            }
         )
 
-# CONFIRMATION MESSAGE
+    output_dict = {
+        "Target gene": name_tag,
+        "Genetic sequence": seq,
+        "Total primer pairs": len(flat_primer_pair_info),
+        "Generated with": "$software name",
+        "Date": str(datetime.datetime.now()),
+        "Primer Pair Info": flat_primer_pair_info
+    }
+
+    with open(args.o, 'w') as f:
+        json.dump(output_dict, f, indent=2)
 
     print(f'The output file has been generated at {args.o}')
 
