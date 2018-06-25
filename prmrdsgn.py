@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-#  Written by: Hans Müller Paul
+#  Written by: Hans Müller Paul and Jacob Heldenbrand
 
 # IMPORT LIBRARIES
 
