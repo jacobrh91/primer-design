@@ -12,7 +12,6 @@ import sys
 import statistics
 import json
 from os import path
-from tabulate import tabulate ### only required for the table in output, can be replaced by something else
 
 # DEFINING VARIABLES
 
@@ -36,13 +35,13 @@ parser.add_argument('-l', '--long', metavar='', dest='l', type=int, default=30,
 parser.add_argument('-m', '--mintemp', metavar='', dest='m', type=float, default=50,
                     help='min Tm in celsius, default = 55'
                     )
-parser.add_argument('-x', '--maxtemp', metavar='', dest='x', type=float, default=70, # Changed from 62, example didn't work with such a low threshold
+parser.add_argument('-x', '--maxtemp', metavar='', dest='x', type=float, default=65,
                     help='max Tm in celsius, default = 62'
                     )
-parser.add_argument('-M', '--mingc', metavar='', dest='M', type=float, default=35, # Changed from 40, example didn't work with such a high threshold
+parser.add_argument('-M', '--mingc', metavar='', dest='M', type=float, default=35, 
                     help='min GC percentage, default = 40'
                     )
-parser.add_argument('-X', '--maxgc', metavar='', dest='X', type=float, default=65, # Changed from 60, example didn't work with such a high threshold
+parser.add_argument('-X', '--maxgc', metavar='', dest='X', type=float, default=65, 
                     help='max GC percentage, default = 60'
                     )
 parser.add_argument('-D', '--tmdiff', metavar='', dest='D', type=float, default=0.5,
