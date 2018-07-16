@@ -33,10 +33,10 @@ parser.add_argument('-s', '--short', metavar='', dest='s', type=int, default=20,
 parser.add_argument('-l', '--long', metavar='', dest='l', type=int, default=30,
                     help='longest acceptable primer, default = 30'
                     )
-parser.add_argument('-m', '--mintemp', metavar='', dest='m', type=float, default=55,
+parser.add_argument('-m', '--mintemp', metavar='', dest='m', type=float, default=50,
                     help='min Tm in celsius, default = 55'
                     )
-parser.add_argument('-x', '--maxtemp', metavar='', dest='x', type=float, default=75, # Changed from 62, example didn't work with such a low threshold
+parser.add_argument('-x', '--maxtemp', metavar='', dest='x', type=float, default=70, # Changed from 62, example didn't work with such a low threshold
                     help='max Tm in celsius, default = 62'
                     )
 parser.add_argument('-M', '--mingc', metavar='', dest='M', type=float, default=35, # Changed from 40, example didn't work with such a high threshold
